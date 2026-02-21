@@ -4,172 +4,376 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Smart Face Check-in</title>
-    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
+    
+    <!-- Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        :root { --primary: #2563eb; --success: #059669; --bg: #f8fafc; }
-        body { font-family: 'Kanit', sans-serif; background: var(--bg); margin: 0; display: flex; justify-content: center; }
-        .app-container { width: 100%; max-width: 450px; background: white; min-height: 100vh; box-shadow: 0 0 20px rgba(0,0,0,0.05); padding: 20px; box-sizing: border-box; }
-        h2 { color: #1e293b; text-align: center; margin-bottom: 30px; }
-        .card { border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
-        button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-top: 10px; }
-        .btn-main { background: var(--primary); color: white; }
-        .btn-main:active { transform: scale(0.98); }
-        .btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
-        video { width: 100%; border-radius: 12px; background: #000; transform: scaleX(-1); margin-top: 10px; display: none; }
-        #status-msg { text-align: center; color: #64748b; font-size: 0.9em; margin-top: 15px; }
-        .loading { display: none; text-align: center; padding: 20px; }
-        .hidden { display: none; }
+        body { font-family: 'Prompt', sans-serif; background-color: #f3f4f6; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+        }
+        /* กลับซ้ายขวาให้เหมือนกระจก */
+        video { transform: scaleX(-1); border-radius: 0.75rem; }
+        /* ให้ Canvas ทับพอดีกับ Video */
+        .video-container { position: relative; width: 100%; border-radius: 0.75rem; overflow: hidden; background: #000; }
+        canvas { position: absolute; top: 0; left: 0; transform: scaleX(-1); }
+        
+        /* Loader Animation */
+        .loader-overlay { position: fixed; top:0; left:0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); z-index: 50; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .hidden-view { display: none !important; }
     </style>
 </head>
-<body>
+<body class="flex items-center justify-center min-h-screen p-4 text-gray-800">
 
-<div class="app-container">
-    <h2>Attendance System</h2>
-
-    <div id="login-sec">
-        <div class="card">
-            <input type="text" id="user" placeholder="ชื่อผู้ใช้งาน (Username)">
-            <input type="password" id="pass" placeholder="รหัสผ่าน">
-            <button class="btn-main" onclick="doLogin()">เข้าสู่ระบบเพื่อสแกน</button>
-        </div>
-        <button class="btn-outline" onclick="showSection('reg')">ลงทะเบียนพนักงานใหม่</button>
+    <!-- Loading Screen -->
+    <div id="loader" class="loader-overlay">
+        <div class="spinner mb-4"></div>
+        <h2 id="loader-text" class="text-lg font-semibold text-blue-600">กำลังโหลด AI Models...</h2>
+        <p class="text-sm text-gray-500 mt-2">กรุณารอสักครู่</p>
     </div>
 
-    <div id="reg-sec" class="hidden">
-        <div class="card">
-            <h3>ลงทะเบียนพนักงาน</h3>
-            <input type="text" id="reg-user" placeholder="Username">
-            <input type="password" id="reg-pass" placeholder="Password">
-            <input type="text" id="reg-name" placeholder="ชื่อ-นามสกุลจริง">
-            <video id="reg-video" autoplay playsinline muted style="display:block;"></video>
-            <button class="btn-main" onclick="doRegister()">บันทึกใบหน้าแม่แบบ</button>
-            <button class="btn-outline" onclick="location.reload()">ยกเลิก</button>
+    <!-- Main Container -->
+    <div class="w-full max-w-md glass-card rounded-2xl p-6 hidden-view" id="app-container">
+        
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 text-blue-600 mb-4">
+                <i class="fas fa-fingerprint text-3xl"></i>
+            </div>
+            <h1 class="text-2xl font-bold text-gray-800">Smart Check-in</h1>
+            <p class="text-sm text-gray-500">ระบบลงเวลาด้วยใบหน้าและพิกัด GPS</p>
         </div>
-    </div>
 
-    <div id="scan-sec" class="hidden">
-        <div class="card">
-            <h3 id="welcome-txt">กำลังโหลดข้อมูล...</h3>
-            <video id="scan-video" autoplay playsinline muted style="display:block;"></video>
-            <div id="status-msg">รอตรวจพิกัดและใบหน้า...</div>
-            <button class="btn-main" id="checkin-btn" onclick="doCheckIn()">ยืนยันตัวตนและบันทึกเวลา</button>
+        <!-- Section 1: Login -->
+        <div id="view-login">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">ชื่อผู้ใช้งาน</label>
+                    <div class="relative">
+                        <i class="fas fa-user absolute left-3 top-3.5 text-gray-400"></i>
+                        <input type="text" id="user" class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="Username">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">รหัสผ่าน</label>
+                    <div class="relative">
+                        <i class="fas fa-lock absolute left-3 top-3.5 text-gray-400"></i>
+                        <input type="password" id="pass" class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="Password">
+                    </div>
+                </div>
+                <button onclick="doLogin()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl shadow-lg shadow-blue-200 transition-all mt-6">
+                    เข้าสู่ระบบเพื่อสแกน <i class="fas fa-arrow-right ml-2"></i>
+                </button>
+            </div>
+            <div class="mt-6 text-center">
+                <button onclick="switchView('register')" class="text-sm text-gray-500 hover:text-blue-600 font-medium transition-colors">
+                    <i class="fas fa-user-plus mr-1"></i> สำหรับ HR: ลงทะเบียนพนักงานใหม่
+                </button>
+            </div>
         </div>
-    </div>
 
-    <div id="loader" class="loading">⏳ กำลังประมวลผล...</div>
-</div>
+        <!-- Section 2: Registration (HR) -->
+        <div id="view-register" class="hidden-view">
+            <div class="flex items-center mb-4">
+                <button onclick="switchView('login')" class="text-gray-400 hover:text-gray-700 mr-3"><i class="fas fa-chevron-left"></i></button>
+                <h3 class="font-semibold text-lg">ลงทะเบียนพนักงาน</h3>
+            </div>
+            
+            <div class="space-y-3 mb-4">
+                <input type="text" id="reg-user" class="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ตั้ง Username">
+                <input type="password" id="reg-pass" class="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ตั้ง Password">
+                <input type="text" id="reg-name" class="w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ชื่อ-นามสกุลจริง">
+            </div>
+
+            <div class="video-container shadow-inner mb-4">
+                <video id="reg-video" autoplay playsinline muted></video>
+                <canvas id="reg-canvas"></canvas>
+            </div>
+
+            <button onclick="doRegister()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl shadow-lg transition-all">
+                <i class="fas fa-camera mr-2"></i> บันทึกใบหน้าแม่แบบ
+            </button>
+        </div>
+
+        <!-- Section 3: Check-in (Scan) -->
+        <div id="view-scan" class="hidden-view">
+            <div class="text-center mb-4">
+                <div class="inline-block p-2 rounded-full bg-green-100 text-green-600 mb-2">
+                    <i class="fas fa-user-check text-xl"></i>
+                </div>
+                <h3 id="welcome-txt" class="font-bold text-xl text-gray-800">สวัสดีคุณ...</h3>
+                <p class="text-sm text-gray-500">กรุณาจัดใบหน้าให้อยู่ในกรอบ</p>
+            </div>
+
+            <div class="video-container shadow-md border-2 border-gray-100 mb-6">
+                <video id="scan-video" autoplay playsinline muted></video>
+                <canvas id="scan-canvas"></canvas>
+            </div>
+
+            <button id="checkin-btn" onclick="doCheckIn()" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-200 transition-all text-lg flex justify-center items-center">
+                <i class="fas fa-map-marker-alt mr-2"></i> ยืนยันพิกัดและบันทึกเวลา
+            </button>
+            <button onclick="location.reload()" class="w-full mt-3 text-gray-400 hover:text-gray-600 text-sm">
+                ยกเลิก / ออกจากระบบ
+            </button>
+        </div>
+
+    </div>
 
 <script>
+    // ==========================================
+    // ⚠️ นำ URL จาก Google Apps Script มาใส่ที่นี่
+    // ==========================================
     const API_URL = "ใส่_WEB_APP_URL_ของคุณที่นี่"; 
+    
+    // Constants & State
+    const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
     let currentUser = null;
+    let currentStream = null;
+    let detectInterval = null;
 
-    // โหลด Models สำหรับทุกแพลตฟอร์ม
-    async function loadModels() {
-        const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
-        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        console.log("Face Models Ready");
+    // ตรวจสอบว่าใส่ API URL หรือยัง
+    function checkAPIUrl() {
+        if (!API_URL || API_URL === "https://script.google.com/macros/s/AKfycbyPg_WbH1aoagJ5ZcgvvtK5mYuy0nlLdEqZC4jOHeFOtoJgNjcIGLUQITOGNA0dT2EJ5Q/exec") {
+            Swal.fire('ข้อผิดพลาด', 'คุณยังไม่ได้ใส่ API URL ของ Google Apps Script ในโค้ด!', 'error');
+            return false;
+        }
+        return true;
     }
 
-    async function startCamera(id) {
+    // --- 1. Initialization ---
+    window.onload = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
+            await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+            await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+            await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+            
+            document.getElementById('loader').classList.add('hidden-view');
+            document.getElementById('app-container').classList.remove('hidden-view');
+        } catch (error) {
+            Swal.fire('ข้อผิดพลาด', 'ไม่สามารถโหลด AI Model ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต', 'error');
+        }
+    };
+
+    // --- 2. View Management ---
+    function switchView(viewName) {
+        document.getElementById('view-login').classList.add('hidden-view');
+        document.getElementById('view-register').classList.add('hidden-view');
+        document.getElementById('view-scan').classList.add('hidden-view');
+        
+        stopCamera(); // ปิดกล้องก่อนสลับหน้า
+
+        if(viewName === 'login') {
+            document.getElementById('view-login').classList.remove('hidden-view');
+        } else if(viewName === 'register') {
+            document.getElementById('view-register').classList.remove('hidden-view');
+            startCamera('reg-video', 'reg-canvas');
+        } else if (viewName === 'scan') {
+            document.getElementById('view-scan').classList.remove('hidden-view');
+            startCamera('scan-video', 'scan-canvas');
+        }
+    }
+
+    // --- 3. Camera & Real-time Tracking ---
+    async function startCamera(videoId, canvasId) {
+        try {
+            currentStream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } 
             });
-            const videoEl = document.getElementById(id);
-            videoEl.srcObject = stream;
+            const videoEl = document.getElementById(videoId);
+            const canvasEl = document.getElementById(canvasId);
+            
+            videoEl.srcObject = currentStream;
+            
+            // เมื่อวิดีโอเล่น ให้เริ่มวาดกรอบใบหน้า
+            videoEl.onplay = () => {
+                const displaySize = { width: videoEl.offsetWidth, height: videoEl.offsetHeight };
+                faceapi.matchDimensions(canvasEl, displaySize);
+                
+                detectInterval = setInterval(async () => {
+                    const detections = await faceapi.detectAllFaces(videoEl, new faceapi.TinyFaceDetectorOptions());
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                    
+                    canvasEl.getContext('2d').clearRect(0, 0, canvasEl.width, canvasEl.height);
+                    // วาดกล่องสีฟ้า
+                    faceapi.draw.drawDetections(canvasEl, resizedDetections, { withScore: false, boxColor: '#3b82f6' });
+                }, 100);
+            };
         } catch (err) {
-            alert("ไม่สามารถเข้าถึงกล้องได้: " + err.message);
+            console.error("Camera Error:", err);
+            
+            let errorTitle = 'ไม่สามารถเปิดกล้องได้';
+            let errorMsg = 'กรุณาอนุญาตให้เว็บไซต์เข้าถึงกล้องของคุณ';
+            let errorFooter = 'แนะนำ: ให้คัดลอกลิงก์ไปเปิดใน Google Chrome หรือ Safari โดยตรง';
+
+            // ตรวจสอบสาเหตุที่แท้จริง
+            if (err.name === 'NotAllowedError') {
+                errorMsg = 'คุณได้ปฏิเสธการเข้าถึงกล้อง กรุณาไปที่การตั้งค่าเบราว์เซอร์เพื่ออนุญาต';
+            } else if (err.name === 'NotFoundError') {
+                errorMsg = 'ไม่พบอุปกรณ์กล้องในเครื่องของคุณ';
+            } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                errorMsg = 'กล้องอาจถูกใช้งานโดยแอปพลิเคชันอื่นอยู่';
+            } else if (err.message && err.message.toLowerCase().includes('policy')) {
+                errorMsg = 'ระบบความปลอดภัยของแอปพลิเคชันนี้บล็อกการใช้กล้อง (เช่น รันอยู่ในหน้าต่างพรีวิว)';
+            } else {
+                errorMsg = `เกิดข้อผิดพลาดทางเทคนิค: ${err.message}`;
+            }
+
+            Swal.fire({
+                title: errorTitle,
+                text: errorMsg,
+                icon: 'warning',
+                footer: `<span class="text-blue-600 font-semibold">${errorFooter}</span>`
+            });
         }
     }
 
-    function showSection(mode) {
-        document.getElementById('login-sec').classList.add('hidden');
-        document.getElementById('reg-sec').classList.add('hidden');
-        document.getElementById('scan-sec').classList.add('hidden');
-        
-        if(mode === 'reg') {
-            document.getElementById('reg-sec').classList.remove('hidden');
-            startCamera('reg-video');
-        } else if (mode === 'scan') {
-            document.getElementById('scan-sec').classList.remove('hidden');
-            startCamera('scan-video');
+    function stopCamera() {
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+        if (detectInterval) {
+            clearInterval(detectInterval);
         }
     }
 
+    function showProcessing(text) {
+        document.getElementById('loader-text').innerText = text;
+        document.getElementById('loader').classList.remove('hidden-view');
+    }
+
+    function hideProcessing() {
+        document.getElementById('loader').classList.add('hidden-view');
+    }
+
+    // --- 4. Core Logic ---
     async function doLogin() {
+        if (!checkAPIUrl()) return; // เช็ค URL ก่อนทำงาน
+
         const username = document.getElementById('user').value;
         const password = document.getElementById('pass').value;
-        if(!username || !password) return alert("กรุณากรอกข้อมูล");
+        if(!username || !password) return Swal.fire('แจ้งเตือน', 'กรุณากรอก Username และ Password', 'warning');
 
-        toggleLoader(true);
-        const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'login', username, password }) });
-        const data = await res.json();
-        toggleLoader(false);
+        showProcessing('กำลังเข้าสู่ระบบ...');
+        try {
+            const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'login', username, password }) });
+            const data = await res.json();
+            hideProcessing();
 
-        if(data.result === 'success') {
-            currentUser = data;
-            document.getElementById('welcome-txt').innerText = `สวัสดีคุณ ${data.name}`;
-            showSection('scan');
-        } else {
-            alert("ชื่อผู้ใช้หรือรหัสผ่านผิด!");
+            if(data.result === 'success') {
+                currentUser = data;
+                document.getElementById('welcome-txt').innerText = `สวัสดีคุณ ${data.name}`;
+                switchView('scan');
+            } else {
+                Swal.fire('ไม่สำเร็จ', data.message || 'ข้อมูลไม่ถูกต้อง', 'error');
+            }
+        } catch (e) {
+            hideProcessing();
+            Swal.fire('ข้อผิดพลาด', 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาตรวจสอบลิงก์ Web App', 'error');
         }
     }
 
     async function doRegister() {
+        if (!checkAPIUrl()) return; // เช็ค URL ก่อนทำงาน
+
         const username = document.getElementById('reg-user').value;
         const password = document.getElementById('reg-pass').value;
         const name = document.getElementById('reg-name').value;
-        if(!username || !password || !name) return alert("กรุณากรอกข้อมูลให้ครบ");
+        if(!username || !password || !name) return Swal.fire('แจ้งเตือน', 'กรุณากรอกข้อมูลให้ครบ', 'warning');
 
-        toggleLoader(true);
+        showProcessing('กำลังบันทึกใบหน้า...');
         const detect = await faceapi.detectSingleFace('reg-video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
         
         if(detect) {
-            await fetch(API_URL, { method: 'POST', body: JSON.stringify({ 
-                action: 'register', username, password, name, descriptor: Array.from(detect.descriptor) 
-            }) });
-            alert("ลงทะเบียนสำเร็จ!");
-            location.reload();
+            try {
+                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ 
+                    action: 'register', username, password, name, descriptor: Array.from(detect.descriptor) 
+                }) });
+                
+                if(!res.ok) throw new Error("Network response was not ok");
+                
+                hideProcessing();
+                Swal.fire({
+                    title: 'สำเร็จ!', text: 'ลงทะเบียนพนักงานเรียบร้อยแล้ว', icon: 'success', confirmButtonText: 'ตกลง'
+                }).then(() => location.reload());
+            } catch (e) {
+                hideProcessing();
+                console.error(e);
+                Swal.fire('ข้อผิดพลาด', 'บันทึกไม่สำเร็จ อาจเกิดจาก URL หรือสิทธิ์ของ Google Apps Script', 'error');
+            }
         } else {
-            alert("ไม่พบใบหน้า กรุณาขยับหน้าให้อยู่กลางกล้อง");
-            toggleLoader(false);
+            hideProcessing();
+            Swal.fire('ไม่พบใบหน้า', 'กรุณาขยับหน้าให้อยู่กลางกล้องให้ชัดเจน', 'warning');
         }
     }
 
     async function doCheckIn() {
-        document.getElementById('status-msg').innerText = "📍 ตรวจสอบพิกัดและใบหน้า...";
+        if (!checkAPIUrl()) return; // เช็ค URL ก่อนทำงาน
+
+        showProcessing('ตรวจสอบพิกัดและใบหน้า...');
         
+        // 1. ตรวจสอบใบหน้าก่อน
+        const detect = await faceapi.detectSingleFace('scan-video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+        
+        if(!detect) {
+            hideProcessing();
+            return Swal.fire('ไม่พบใบหน้า', 'กรุณามองกล้องและอย่าให้มีสิ่งบดบัง', 'warning');
+        }
+
+        const savedDescriptor = new Float32Array(JSON.parse(currentUser.descriptor));
+        const distance = faceapi.euclideanDistance(detect.descriptor, savedDescriptor);
+
+        // 0.5 คือค่าความแม่นยำ ยิ่งน้อยยิ่งเข้มงวด
+        if(distance > 0.5) {
+            hideProcessing();
+            return Swal.fire('ข้อมูลไม่ตรงกัน', 'ใบหน้าไม่ตรงกับที่ลงทะเบียนไว้', 'error');
+        }
+
+        // 2. ขอพิกัด GPS
+        if (!navigator.geolocation) {
+            hideProcessing();
+            return Swal.fire('ข้อผิดพลาด', 'เบราว์เซอร์ของคุณไม่รองรับ GPS', 'error');
+        }
+
         navigator.geolocation.getCurrentPosition(async (pos) => {
-            const detect = await faceapi.detectSingleFace('scan-video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-            
-            if(!detect) return alert("ไม่พบใบหน้า!");
-
-            const savedDescriptor = new Float32Array(JSON.parse(currentUser.descriptor));
-            const distance = faceapi.euclideanDistance(detect.descriptor, savedDescriptor);
-
-            if(distance < 0.5) { // Match!
-                toggleLoader(true);
+            try {
+                // 3. ส่งข้อมูลไปเช็คระยะทางที่ฝั่ง Server (Google Sheets)
                 const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ 
                     action: 'checkin', name: currentUser.name, lat: pos.coords.latitude, lon: pos.coords.longitude 
                 })});
                 const result = await res.json();
-                alert(`${result.status}\nระยะห่าง: ${result.distance.toFixed(2)} เมตร`);
-                location.reload();
-            } else {
-                alert("ใบหน้าไม่ตรงกับที่ลงทะเบียนไว้!");
+                
+                hideProcessing();
+                
+                // แจ้งผลการเข้างาน
+                Swal.fire({
+                    title: result.status,
+                    html: `ระยะห่างจากจุดเช็คอิน: <b>${result.distance.toFixed(0)} เมตร</b>`,
+                    icon: result.icon,
+                    confirmButtonText: 'ปิด',
+                    allowOutsideClick: false
+                }).then(() => location.reload()); // โหลดหน้าใหม่เพื่อความปลอดภัย
+                
+            } catch (e) {
+                hideProcessing();
+                Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้', 'error');
             }
-        }, err => alert("กรุณาเปิด GPS และอนุญาตสิทธิ์"), { enableHighAccuracy: true });
+        }, (err) => {
+            hideProcessing();
+            let msg = 'กรุณาเปิด GPS และอนุญาตให้เว็บไซต์เข้าถึงตำแหน่งที่ตั้ง';
+            if(err.code === 1) msg = 'คุณปฏิเสธการเข้าถึง GPS';
+            Swal.fire('ไม่พบตำแหน่ง GPS', msg, 'error');
+        }, { enableHighAccuracy: true, timeout: 10000 });
     }
-
-    function toggleLoader(show) {
-        document.getElementById('loader').style.display = show ? 'block' : 'none';
-    }
-
-    loadModels();
 </script>
 </body>
 </html>
