@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Face Check-in</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root { --primary: #2563eb; --success: #059669; --bg: #f8fafc; }
+        body { font-family: 'Kanit', sans-serif; background: var(--bg); margin: 0; display: flex; justify-content: center; }
+        .app-container { width: 100%; max-width: 450px; background: white; min-height: 100vh; box-shadow: 0 0 20px rgba(0,0,0,0.05); padding: 20px; box-sizing: border-box; }
+        h2 { color: #1e293b; text-align: center; margin-bottom: 30px; }
+        .card { border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
+        button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-top: 10px; }
+        .btn-main { background: var(--primary); color: white; }
+        .btn-main:active { transform: scale(0.98); }
+        .btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+        video { width: 100%; border-radius: 12px; background: #000; transform: scaleX(-1); margin-top: 10px; display: none; }
+        #status-msg { text-align: center; color: #64748b; font-size: 0.9em; margin-top: 15px; }
+        .loading { display: none; text-align: center; padding: 20px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <h2>Attendance System</h2>
+
+    <div id="login-sec">
+        <div class="card">
+            <input type="text" id="user" placeholder="ชื่อผู้ใช้งาน (Username)">
+            <input type="password" id="pass" placeholder="รหัสผ่าน">
+            <button class="btn-main" onclick="doLogin()">เข้าสู่ระบบเพื่อสแกน</button>
+        </div>
+        <button class="btn-outline" onclick="showSection('reg')">ลงทะเบียนพนักงานใหม่</button>
+    </div>
+
+    <div id="reg-sec" class="hidden">
+        <div class="card">
+            <h3>ลงทะเบียนพนักงาน</h3>
+            <input type="text" id="reg-user" placeholder="Username">
+            <input type="password" id="reg-pass" placeholder="Password">
+            <input type="text" id="reg-name" placeholder="ชื่อ-นามสกุลจริง">
+            <video id="reg-video" autoplay playsinline muted style="display:block;"></video>
+            <button class="btn-main" onclick="doRegister()">บันทึกใบหน้าแม่แบบ</button>
+            <button class="btn-outline" onclick="location.reload()">ยกเลิก</button>
+        </div>
+    </div>
+
+    <div id="scan-sec" class="hidden">
+        <div class="card">
+            <h3 id="welcome-txt">กำลังโหลดข้อมูล...</h3>
+            <video id="scan-video" autoplay playsinline muted style="display:block;"></video>
+            <div id="status-msg">รอตรวจพิกัดและใบหน้า...</div>
+            <button class="btn-main" id="checkin-btn" onclick="doCheckIn()">ยืนยันตัวตนและบันทึกเวลา</button>
+        </div>
+    </div>
+
+    <div id="loader" class="loading">⏳ กำลังประมวลผล...</div>
+</div>
+
+<script>
+    const API_URL = "ใส่_WEB_APP_URL_ของคุณที่นี่"; 
+    let currentUser = null;
+
+    // โหลด Models สำหรับทุกแพลตฟอร์ม
+    async function loadModels() {
+        const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        console.log("Face Models Ready");
+    }
+
+    async function startCamera(id) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } 
+            });
+            const videoEl = document.getElementById(id);
+            videoEl.srcObject = stream;
+        } catch (err) {
+            alert("ไม่สามารถเข้าถึงกล้องได้: " + err.message);
+        }
+    }
+
+    function showSection(mode) {
+        document.getElementById('login-sec').classList.add('hidden');
+        document.getElementById('reg-sec').classList.add('hidden');
+        document.getElementById('scan-sec').classList.add('hidden');
+        
+        if(mode === 'reg') {
+            document.getElementById('reg-sec').classList.remove('hidden');
+            startCamera('reg-video');
+        } else if (mode === 'scan') {
+            document.getElementById('scan-sec').classList.remove('hidden');
+            startCamera('scan-video');
+        }
+    }
+
+    async function doLogin() {
+        const username = document.getElementById('user').value;
+        const password = document.getElementById('pass').value;
+        if(!username || !password) return alert("กรุณากรอกข้อมูล");
+
+        toggleLoader(true);
+        const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'login', username, password }) });
+        const data = await res.json();
+        toggleLoader(false);
+
+        if(data.result === 'success') {
+            currentUser = data;
+            document.getElementById('welcome-txt').innerText = `สวัสดีคุณ ${data.name}`;
+            showSection('scan');
+        } else {
+            alert("ชื่อผู้ใช้หรือรหัสผ่านผิด!");
+        }
+    }
+
+    async function doRegister() {
+        const username = document.getElementById('reg-user').value;
+        const password = document.getElementById('reg-pass').value;
+        const name = document.getElementById('reg-name').value;
+        if(!username || !password || !name) return alert("กรุณากรอกข้อมูลให้ครบ");
+
+        toggleLoader(true);
+        const detect = await faceapi.detectSingleFace('reg-video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+        
+        if(detect) {
+            await fetch(API_URL, { method: 'POST', body: JSON.stringify({ 
+                action: 'register', username, password, name, descriptor: Array.from(detect.descriptor) 
+            }) });
+            alert("ลงทะเบียนสำเร็จ!");
+            location.reload();
+        } else {
+            alert("ไม่พบใบหน้า กรุณาขยับหน้าให้อยู่กลางกล้อง");
+            toggleLoader(false);
+        }
+    }
+
+    async function doCheckIn() {
+        document.getElementById('status-msg').innerText = "📍 ตรวจสอบพิกัดและใบหน้า...";
+        
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            const detect = await faceapi.detectSingleFace('scan-video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            
+            if(!detect) return alert("ไม่พบใบหน้า!");
+
+            const savedDescriptor = new Float32Array(JSON.parse(currentUser.descriptor));
+            const distance = faceapi.euclideanDistance(detect.descriptor, savedDescriptor);
+
+            if(distance < 0.5) { // Match!
+                toggleLoader(true);
+                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ 
+                    action: 'checkin', name: currentUser.name, lat: pos.coords.latitude, lon: pos.coords.longitude 
+                })});
+                const result = await res.json();
+                alert(`${result.status}\nระยะห่าง: ${result.distance.toFixed(2)} เมตร`);
+                location.reload();
+            } else {
+                alert("ใบหน้าไม่ตรงกับที่ลงทะเบียนไว้!");
+            }
+        }, err => alert("กรุณาเปิด GPS และอนุญาตสิทธิ์"), { enableHighAccuracy: true });
+    }
+
+    function toggleLoader(show) {
+        document.getElementById('loader').style.display = show ? 'block' : 'none';
+    }
+
+    loadModels();
+</script>
+</body>
+</html>
